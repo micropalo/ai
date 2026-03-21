@@ -2,57 +2,64 @@ import os
 import sys
 import json
 import queue
+import vosk
 import sounddevice as sd
-from vosk import Model, KaldiRecognizer
+import ollama
 
-# --- CONFIGURATION ---
-# Change this to your actual model folder name
+# 1. SETUP PATHS
+# Make sure this matches your unzipped folder name in Arch
 MODEL_PATH = "model-en" 
 
 if not os.path.exists(MODEL_PATH):
-    print(f"Error: Model not found at {MODEL_PATH}")
+    print(f"ERROR: Model folder '{MODEL_PATH}' not found!")
     sys.exit(1)
 
-# Initialize Vosk
-model = Model(MODEL_PATH)
+# 2. INITIALIZE VOSK & AUDIO QUEUE
+model = vosk.Model(MODEL_PATH)
 q = queue.Queue()
 
 def callback(indata, frames, time, status):
-    """This handles the raw audio from the microphone"""
+    """Callback for the sounddevice input stream"""
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
 
-def test_stt():
-    # 16000Hz is the standard for most Vosk models
+def speak_offline(text):
+    """Uses espeak-ng to talk through your Bluetooth speaker"""
+    print(f"Llama: {text}")
+    # We use 'aplay -D pipewire' to send audio to your Bluetooth default
+    cmd = f"espeak-ng -v en-us -s 160 '{text}' --stdout | aplay -D pipewire"
+    os.system(cmd)
+
+def main():
+    # Start listening to your USB Mic (16000Hz is standard for Vosk)
     with sd.RawInputStream(samplerate=16000, blocksize=8000, dtype='int16',
                            channels=1, callback=callback):
         
-        print(f"--- OFFLINE STT TEST READY ---")
-        print(f"Model: {MODEL_PATH}")
-        print("Speak into your mic now. (Ctrl+C to stop)")
+        print(f"\n[LOCAL AI READY] Using model: {MODEL_PATH}")
+        print("Talk to Llama now... (Ctrl+C to stop)")
         
-        rec = KaldiRecognizer(model, 16000)
+        rec = vosk.KaldiRecognizer(model, 16000)
         
         while True:
             data = q.get()
             if rec.AcceptWaveform(data):
-                # This triggers when it detects a pause (end of sentence)
                 result = json.loads(rec.Result())
-                text = result.get("text", "")
-                if text:
-                    print(f"\n>> Final Output: {text}")
-            else:
-                # This shows the "live" guessing as you talk
-                partial = json.loads(rec.PartialResult())
-                partial_text = partial.get("partial", "")
-                if partial_text:
-                    # Clear line and print partial to stay on one line
-                    sys.stdout.write(f"\rListening: {partial_text}...")
-                    sys.stdout.flush()
+                user_text = result.get("text", "")
+                
+                if user_text.strip():
+                    print(f"You: {user_text}")
+                    
+                    # Send to Local Llama 3.2 1B
+                    response = ollama.chat(model='llama3.2:1b', messages=[
+                        {'role': 'user', 'content': user_text},
+                    ])
+                    
+                    reply = response['message']['content']
+                    speak_offline(reply)
 
 if __name__ == "__main__":
     try:
-        test_stt()
+        main()
     except KeyboardInterrupt:
-        print("\nTest stopped by user.")
+        print("\nStopping AI...")
