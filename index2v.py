@@ -31,10 +31,19 @@ def main():
                 
                 # Send to Llama 3.2 1B
                 response = ollama.chat(model='llama3.2:1b', messages=[
-                    {'role': 'user', 'content': user_text},
-                ])
-                
-                speak(response['message']['content'])
+    {
+        'role': 'system', 
+        'content': 'Answer only in 10 words or less. Be very blunt.'
+    },
+    {
+        'role': 'user', 
+        'content': user_text
+    },
+])
+
+# Extract the short reply
+reply = response['message']['content']
+speak(reply)
                 
             except Exception:
                 # If it doesn't hear you, it just resets the loop
