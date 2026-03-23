@@ -5,62 +5,60 @@ import queue
 import vosk
 import sounddevice as sd
 
-# 1. SETUP MODEL PATH
-# Ensure this folder name matches your GigaSpeech model folder
-MODEL_PATH = "us-model"
+# --- CONFIGURATION ---
+# Replace with the actual folder name of your GigaSpeech model
+MODEL_PATH = "us-model" 
 
 if not os.path.exists(MODEL_PATH):
-    print(f"ERROR: Model folder '{MODEL_PATH}' not found in current directory.")
+    print(f"ERROR: Model folder '{MODEL_PATH}' not found.")
     sys.exit(1)
 
-# Initialize the model
+# Initialize Vosk
 model = vosk.Model(MODEL_PATH)
 q = queue.Queue()
 
 def callback(indata, frames, time, status):
-    """This function puts audio data from the mic into a queue"""
+    """Callback for the sounddevice input stream"""
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
 
 def main():
-    # Setup microphone parameters (16000Hz is standard for Vosk)
-    # Using 'sd.RawInputStream' is the most stable way on Arch/PipeWire
+    # 16000Hz is required for most Vosk models
     try:
         with sd.RawInputStream(samplerate=16000, blocksize=8000, dtype='int16',
                                channels=1, callback=callback):
             
-            print(f"--- VOSK GIGASPEECH TEST READY ---")
-            print("Say anything... (or say 'exit' to quit)")
-            
+            print("\n--- OFFLINE STT TESTER ---")
             rec = vosk.KaldiRecognizer(model, 16000)
+            
+            # This follows your requested flow
+            print("listening now...") 
             
             while True:
                 data = q.get()
                 if rec.AcceptWaveform(data):
-                    # Final result (full sentence)
                     result = json.loads(rec.Result())
-                    text = result.get("text", "")
+                    user_input = result.get("text", "")
                     
-                    if text.strip():
-                        print(f"User said: {text}")
+                    if user_input.strip():
+                        print(user_input) # Your "user input" placeholder
                         
-                        # --- EXIT PLACEHOLDER ---
-                        if "exit" in text.lower():
-                            print("!!! EXIT COMMAND DETECTED !!!")
-                            # Add your placeholder logic here (e.g., break, cleanup, etc.)
+                        # Check for the exit command
+                        if "exit" in user_input.lower():
+                            print("user said exit user will exit")
                             break
                 else:
-                    # Partial results (optional: uncomment to see live updates)
+                    # Optional: print partials if you want to see it live
                     # partial = json.loads(rec.PartialResult())
-                    # print(f"Listening... {partial.get('partial', '')}", end='\r')
+                    # print(f"Processing: {partial.get('partial', '')}", end='\r')
                     pass
 
     except Exception as e:
-        print(f"Hardware Error: {e}")
+        print(f"\n[Hardware Error]: {e}")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nStopping...")
+        print("\nStopped by user.")
