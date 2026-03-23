@@ -17,7 +17,7 @@ def speak(text):
     
     # Force playback to specific HDMI card (1,7) using mpv
     # plughw is used to handle sample rate conversions automatically
-    cmd = ["mpv", "--audio-device=alsa/plughw:1,7", "--no-video", filename]
+    cmd = ["mpv", "--no-video", filename]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     # Optional: Clean up the file after playing to keep the folder tidy
