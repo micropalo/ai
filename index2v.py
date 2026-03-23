@@ -4,40 +4,60 @@ from gtts import gTTS
 import subprocess
 import os
 
-# Initialize the 'Ears'
+# --- CONFIGURATION ---
+# N is your calibration duration
+N = 1.5 
 r = sr.Recognizer()
 
 def speak(text):
+    """Saves response to MP3 and plays via Bluetooth default"""
     print(f"Llama: {text}")
     filename = "response.mp3"
     
-    # Convert text to speech file
+    # Generate the speech file
     tts = gTTS(text=text, lang='en')
     tts.save(filename)
     
-    # Force playback to specific HDMI card (1,7) using mpv
-    # plughw is used to handle sample rate conversions automatically
-    cmd = ["mpv", "--no-video", filename]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Play using mpv (uses system default Bluetooth automatically)
+    # Redirecting output to DEVNULL keeps your terminal clean
+    subprocess.run(["mpv", "--no-video", filename], 
+                   stdout=subprocess.DEVNULL, 
+                   stderr=subprocess.DEVNULL)
     
-    # Optional: Clean up the file after playing to keep the folder tidy
+    # Clean up the file after playing to keep your folder tidy
     if os.path.exists(filename):
         os.remove(filename)
 
 def main():
+    # --- 1. SMART CALIBRATION AT START ---
+    print("Scanning Room Noise...")
+    with sr.Microphone() as source:
+        # Quick check first
+        r.adjust_for_ambient_noise(source, duration=0.2)
+        
+        if r.energy_threshold > 1000:
+            print(f"Noisy room detected ({int(r.energy_threshold)}). Calibrating for {N}s...")
+            r.adjust_for_ambient_noise(source, duration=N)
+        else:
+            print(f"Quiet room detected ({int(r.energy_threshold)}). Using fast start.")
+            r.adjust_for_ambient_noise(source, duration=0.5)
+
+    # --- 2. MAIN CONVERSATION LOOP ---
     while True:
         with sr.Microphone() as source:
             print("\n[LISTENING] Ask Llama a question...")
-            # Adjust for ambient noise to improve recognition accuracy
-            r.adjust_for_ambient_noise(source, duration=0.5)
+            
+            # Use N for the loop calibration if you prefer it consistent
+            r.adjust_for_ambient_noise(source, duration=0.1) 
             
             try:
-                # Listen for input
+                # Listen for voice input
                 audio = r.listen(source, timeout=10)
                 user_text = r.recognize_google(audio)
                 print(f"You: {user_text}")
-                
-                # Send to Llama 3.2 1B via Ollama
+
+                # --- 3. SEND TO LLAMA WITH SYSTEM PROMPT ---
+                # This ensures the 'Short & Blunt' personality you wanted
                 response = ollama.chat(model='llama3.2:1b', messages=[
                     {
                         'role': 'system', 
@@ -46,23 +66,21 @@ def main():
                     {
                         'role': 'user', 
                         'content': user_text
-                    },
+                    }
                 ])
 
-                # Extract the reply and trigger the speakers
+                # Get the blunt reply
                 reply = response['message']['content']
-                speak(reply)
                 
-            except sr.UnknownValueError:
-                # Speech was unintelligible
-                continue
-            except sr.RequestError:
-                print("Could not request results from Google Speech Recognition service")
-                continue
-            except Exception as e:
-                # Catch-all for other issues (like Ollama being offline)
-                print(f"Error: {e}")
+                # --- 4. OUTPUT TO BLUETOOTH ---
+                speak(reply)
+
+            except Exception:
+                # If it doesn't hear anything or fails, it just resets the loop
                 continue
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nExiting AI Assistant...")
