@@ -1,31 +1,44 @@
+import sounddevice as sd
+import soundfile as sf
 from faster_whisper import WhisperModel
-import time
+import os
 
-# 'tiny.en' uses ~200MB RAM. 'base.en' uses ~400MB.
-model_size = "tiny.en"
+# CONFIG
+MODEL_SIZE = "tiny.en"
+FILE_NAME = "test_audio.wav"
+FS = 16000  # Sample rate
+DURATION = 5  # Seconds to record
 
-print(f"Loading Whisper {model_size}...")
-# On your i3 PC, use compute_type="float16" if you have a GPU, 
-# but for CPU-only (and OPi One), use "int8"
-model = WhisperModel(model_size, device="cpu", compute_type="int8")
+print(f"Loading Whisper {MODEL_SIZE}...")
+model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 
-def test_whisper():
-    print("Whisper is ready. Waiting for audio file...")
-    # Whisper works best by transcribing an actual file
-    start = time.time()
+def record_and_test():
+    print(f"\n[RECORDING] Speak for {DURATION} seconds...")
+    # Record audio from your mic
+    myrecording = sd.rec(int(DURATION * FS), samplerate=FS, channels=1, dtype='int16')
+    sd.wait()  # Wait until recording is finished
     
-    # We will point this to the response.mp3 or a recorded wav later
-    segments, info = model.transcribe("test_audio.wav", beam_size=5)
+    # Save to the file Whisper is looking for
+    sf.write(FILE_NAME, myrecording, FS)
+    print(f"File saved as {FILE_NAME}. Processing...")
 
+    # Transcribe the file
+    segments, info = model.transcribe(FILE_NAME, beam_size=5)
+
+    print("\n--- RESULT ---")
     for segment in segments:
-        print(f"[Detected: {info.language}] user input: {segment.text}")
+        print(f"user input: {segment.text.strip()}")
+        
         if "exit" in segment.text.lower():
             print("user said exit user will exit")
             return
 
-    print(f"Done in {time.time() - start:.2f}s")
+    # Cleanup the test file
+    if os.path.exists(FILE_NAME):
+        os.remove(FILE_NAME)
 
 if __name__ == "__main__":
-    # You'll need to record a quick 'test_audio.wav' to run this test
-    test_whisper()
- 
+    try:
+        record_and_test()
+    except Exception as e:
+        print(f"Error: {e}")
