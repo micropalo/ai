@@ -1,76 +1,70 @@
 import subprocess
 import os
+import sys
 import speech_recognition as sr
-import ollama  # Make sure to: pip install ollama
+import ollama
+from faster_whisper import WhisperModel
 
 # --- CONFIGURATION ---
 PIPER_EXEC = "/usr/bin/piper-tts"
-MODEL_PATH = "en_US-lessac-medium.onnx"
-LLM_MODEL = "llama3.2:1b"  # Your local Ollama model
+VOICE_MODEL = "en_US-lessac-medium.onnx"
+LLM_MODEL = "llama3.2:1b"
 
-# Initialize the 'Ears'
+# Load Whisper Offline Model (Using 'tiny' for i3 CPU speed)
+# 'int8' quantization makes it use less RAM/CPU
+print("Loading Offline Ears...")
+whisper = WhisperModel("tiny", device="cpu", compute_type="int8")
+
 recognizer = sr.Recognizer()
-mic = sr.Microphone()
 
 def speak(text):
-    """The 'Mouth' (Piper)"""
-    # Clean the text (remove asterisks or weird characters Llama might output)
+    """The Mouth (Local Piper)"""
     clean_text = text.replace("*", "").replace("#", "")
     padded_text = f" . . {clean_text}"
-    
     command = (
         f'echo "{padded_text}" | '
-        f'{PIPER_EXEC} --model {MODEL_PATH} --output-raw | '
+        f'{PIPER_EXEC} --model {VOICE_MODEL} --output-raw | '
         f'aplay -r 22050 -f S16_LE -t raw'
     )
-    
-    try:
-        subprocess.run(command, shell=True, check=True)
-    except Exception as e:
-        print(f"Audio Output Error: {e}")
+    subprocess.run(command, shell=True, check=True)
 
-def listen():
-    """The 'Ears' (STT)"""
-    with mic as source:
+def listen_offline():
+    """The Ears (Local Faster-Whisper)"""
+    with sr.Microphone() as source:
         print("\n[Listening...]")
         recognizer.adjust_for_ambient_noise(source, duration=0.5)
-        try:
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-            print("[Processing Speech...]")
-            text = recognizer.recognize_google(audio)
-            return text
-        except:
-            return None
+        audio = recognizer.listen(source)
+        
+        # Save audio to a temp file for Whisper
+        with open("temp_speech.wav", "wb") as f:
+            f.write(audio.get_wav_data())
 
-def chat_with_llama(user_input):
-    """The 'Brain' (Ollama)"""
-    print(f"Thinking about: {user_input}")
-    try:
-        response = ollama.chat(model=LLM_MODEL, messages=[
-            {'role': 'user', 'content': user_input},
-        ])
-        return response['message']['content']
-    except Exception as e:
-        return f"Brain Error: {e}"
+    # Transcribe the file locally
+    segments, _ = whisper.transcribe("temp_speech.wav", beam_size=1)
+    text = "".join([segment.text for segment in segments]).strip()
+    return text if text else None
 
 def main():
-    print(f"--- AI ONLINE (Model: {LLM_MODEL}) ---")
-    speak("System integrated. How can I help you today?")
+    print(f"--- 100% OFFLINE AI READY ---")
+    speak("System is now fully offline and ready.")
 
     while True:
-        user_text = listen()
+        user_input = listen_offline()
         
-        if user_text:
-            print(f"You: {user_text}")
+        if user_input:
+            print(f"You: {user_input}")
             
-            # 1. Get response from Llama
-            ai_response = chat_with_llama(user_text)
-            print(f"AI: {ai_response}")
+            # Brain (Ollama)
+            response = ollama.chat(model=LLM_MODEL, messages=[
+                {'role': 'user', 'content': user_input},
+            ])
+            ai_reply = response['message']['content']
             
-            # 2. Speak the response
-            speak(ai_response)
-        else:
-            continue
+            print(f"AI: {ai_reply}")
+            speak(ai_reply)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)
