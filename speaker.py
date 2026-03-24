@@ -1,43 +1,58 @@
 import subprocess
-import sys
 import os
+import sys
 
-# --- CONFIGURATION ---
-# Ensure these files are in the same folder as this script
+# --- HARDWARE CONFIG ---
+# Verified path from your 'whereis' command
+PIPER_EXEC = "/usr/bin/piper-tts" 
+# Ensure this is in /home/micro/ai/
 MODEL = "en_US-lessac-medium.onnx"
 
 def speak_piper(text):
     if not os.path.exists(MODEL):
-        print(f"Error: Model file {MODEL} not found!")
+        print(f"Error: {MODEL} not found in the current directory!")
         return
 
-    print(f"Piper is speaking: {text}")
+    # TECHNICAL FIX: We add a short pause at the start to wake up the 
+    # TG-116 Bluetooth speaker before the first word is spoken.
+    # We also use --sentence-silence to keep the speaker 'alive' between sentences.
+    
+    print(f"Assistant: {text}")
 
-    # We pipe the text into piper, which outputs raw audio to aplay
-    # aplay -r 22050: Piper 'medium' models usually output at 22050Hz
+    # The 'lead-in' dots (...) help Piper generate a tiny bit of initial silence
+    padded_text = f". . . {text}"
+
     command = (
-        f'echo "{text}" | '
-        f'piper --model {MODEL} --output-raw | '
+        f'echo "{padded_text}" | '
+        f'{PIPER_EXEC} --model {MODEL} --sentence-silence 0.5 --output-raw | '
         f'aplay -r 22050 -f S16_LE -t raw'
     )
 
     try:
+        # Running via shell=True to handle the pipes (|)
         subprocess.run(command, shell=True, check=True)
     except Exception as e:
-        print(f"Audio Error: {e}")
+        print(f"Hardware/Audio Error: {e}")
 
 def main():
-    print("--- NEURAL OFFLINE SPEAKER (PIPER) ---")
-    print("Type your text and press Enter. (type 'exit' to quit)")
+    print("--- NEURAL SPEAKER TEST (OFFLINE) ---")
+    print("Bluetooth: Ensure TG-116 is connected.")
+    print("Type 'exit' to stop.")
     
     while True:
-        user_input = input("\n> ")
-        
-        if user_input.lower() == 'exit':
-            break
+        try:
+            user_input = input("\nEnter text: ")
             
-        if user_input.strip():
-            speak_piper(user_input)
+            if user_input.lower() == 'exit':
+                print("Shutting down speaker...")
+                break
+                
+            if user_input.strip():
+                speak_piper(user_input)
+                
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
 
 if __name__ == "__main__":
     main()
