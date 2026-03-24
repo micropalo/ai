@@ -1,57 +1,57 @@
 import subprocess
 import os
-import sys
+import time
 
 # --- HARDWARE CONFIG ---
-# Verified path from your 'whereis' command
 PIPER_EXEC = "/usr/bin/piper-tts" 
-# Ensure this is in /home/micro/ai/
 MODEL = "en_US-lessac-medium.onnx"
 
 def speak_piper(text):
     if not os.path.exists(MODEL):
-        print(f"Error: {MODEL} not found in the current directory!")
+        print(f"Error: {MODEL} not found!")
         return
 
-    # TECHNICAL FIX: We add a short pause at the start to wake up the 
-    # TG-116 Bluetooth speaker before the first word is spoken.
-    # We also use --sentence-silence to keep the speaker 'alive' between sentences.
-    
     print(f"Assistant: {text}")
 
-    # The 'lead-in' dots (...) help Piper generate a tiny bit of initial silence
-    padded_text = f". . . {text}"
-
-    command = (
-        f'echo "{padded_text}" | '
-        f'{PIPER_EXEC} --model {MODEL} --sentence-silence 0.5 --output-raw | '
-        f'aplay -r 22050 -f S16_LE -t raw'
-    )
-
     try:
-        # Running via shell=True to handle the pipes (|)
+        # STEP 1: Wake up the Bluetooth Speaker
+        # We play 2 seconds of silence using '/dev/zero'
+        # -d 2: duration 2 seconds
+        # -r 22050: matches Piper's rate to keep the hardware synced
+        print("Waking up speaker...")
+        subprocess.run(
+            ["aplay", "-d", "2", "-r", "22050", "-f", "S16_LE", "/dev/zero"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # STEP 2: Speak the text
+        # We use a slight delay (0.1s) after the silence for stability
+        time.sleep(0.1)
+        
+        command = (
+            f'echo "{text}" | '
+            f'{PIPER_EXEC} --model {MODEL} --output-raw | '
+            f'aplay -r 22050 -f S16_LE -t raw'
+        )
+        
         subprocess.run(command, shell=True, check=True)
+
     except Exception as e:
         print(f"Hardware/Audio Error: {e}")
 
 def main():
-    print("--- NEURAL SPEAKER TEST (OFFLINE) ---")
-    print("Bluetooth: Ensure TG-116 is connected.")
-    print("Type 'exit' to stop.")
+    print("--- NEURAL SPEAKER (2s BT WAKE-UP) ---")
+    print("Testing on TG-116 Bluetooth Speaker")
     
     while True:
         try:
             user_input = input("\nEnter text: ")
-            
             if user_input.lower() == 'exit':
-                print("Shutting down speaker...")
                 break
-                
             if user_input.strip():
                 speak_piper(user_input)
-                
         except KeyboardInterrupt:
-            print("\nExiting...")
             break
 
 if __name__ == "__main__":
