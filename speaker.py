@@ -3,64 +3,62 @@ import os
 import threading
 import time
 
-# --- CONFIG ---
+# --- HARDWARE CONFIG ---
 PIPER_EXEC = "/usr/bin/piper-tts"
-# Ensure this path is correct for your system
 MODEL = "en_US-lessac-medium.onnx"
+# TARGET: HDMI Hardware Address (Card 1, Device 7)
+HDMI_DEVICE = "hw:1,7"
 
 def keep_speaker_awake():
     """
-    Background worker: Creates a continuous stream of digital silence.
-    This prevents Bluetooth devices from entering power-save mode.
+    Background worker: Keeps the HDMI 'pipe' open.
+    Even though HDMI doesn't sleep like BT, keeping the stream 
+    initially active prevents 'popping' sounds.
     """
-    print("[BT] Starting continuous silence stream...")
-    try:
-        # We read from /dev/zero and pipe it to aplay infinitely.
-        # This creates a 'warm' connection that never disconnects.
-        subprocess.run(
-            ["aplay", "-r", "22050", "-c", "1", "-f", "S16_LE", "/dev/zero"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-    except Exception as e:
-        print(f"[BT] Heartbeat stopped: {e}")
+    while True:
+        try:
+            # Pinging HDMI Device 1,7
+            subprocess.run(
+                ["aplay", "-D", HDMI_DEVICE, "-d", "1", "-r", "22050", "-f", "S16_LE", "/dev/zero"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(10) # HDMI is more stable, so we can wait longer
+        except:
+            break
 
-# 1. Start the 'Infinite Silence' thread
-# It will run in the background as long as the script is open.
+# Start the 'Heartbeat' thread
 bt_heartbeat = threading.Thread(target=keep_speaker_awake, daemon=True)
 bt_heartbeat.start()
 
 def speak_piper(text):
     if not os.path.exists(MODEL):
-        print(f"Error: {MODEL} not found!")
+        print(f"Error: {MODEL} not found in {os.getcwd()}")
         return
 
-    print(f"Llama says: {text}")
+    print(f"HDMI Output: {text}")
     
-    # We use a slightly different command to ensure it mixes with the background silence
-    # Note: If you get a 'Device or resource busy' error, 
-    # make sure you are using PulseAudio or PipeWire (default on most modern Linux).
+    # We use -D {HDMI_DEVICE} to force the audio to your monitor
     command = (
         f'echo "{text}" | '
         f'{PIPER_EXEC} --model {MODEL} --output-raw | '
-        f'aplay -r 22050 -f S16_LE -t raw'
+        f'aplay -D {HDMI_DEVICE} -r 22050 -f S16_LE -t raw'
     )
     
     try:
         subprocess.run(command, shell=True, check=True)
     except Exception as e:
-        print(f"Audio Error: {e}")
+        print(f"\n[!] Hardware Error: Is HDMI 1,7 correct?")
+        print(f"Check with: aplay -l")
+        print(f"Error details: {e}")
 
 def main():
-    print("--- PIPER SPEAKER (BLUETOOTH ALWAYS-ON) ---")
-    print("Sending 0Hz 'Digital Silence' to keep device awake.")
-    
-    # Wait 2 seconds to let the Bluetooth handshaking finish
-    time.sleep(2)
+    print(f"--- PIPER SPEAKER (HDMI: {HDMI_DEVICE}) ---")
+    print("Direct hardware routing active. Type 'exit' to quit.")
     
     while True:
         try:
-            user_input = input("\nType to speak (or 'exit'): ")
+            user_input = input("\nEnter text: ")
             
             if user_input.lower() == 'exit':
                 break
