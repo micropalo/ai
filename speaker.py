@@ -1,24 +1,27 @@
 import subprocess
 import os
-import sys
 
 # --- HARDWARE CONFIG ---
 PIPER_EXEC = "/usr/bin/piper-tts" 
 MODEL = "en_US-lessac-medium.onnx"
-# FIXED: Based on your 'aplay -l', your TV is Card 2, Device 7
-HDMI_DEVICE = "hw:2,7"
+
+# CHANGED: Using 'plughw' instead of 'hw' to avoid "Device Busy" errors
+HDMI_DEVICE = "plughw:2,7"
 
 def speak_piper(text):
     if not os.path.exists(MODEL):
         print(f"Error: {MODEL} not found!")
         return
 
+    # TECHNICAL FIX: Added ' . . ' to the start of the string.
+    # This gives the HDMI receiver a split second to 'wake up' 
+    # and prevents the first letter of your word from being cut off.
+    padded_text = f" . . {text}"
+
     print(f"HDMI Output ({HDMI_DEVICE}): {text}")
 
-    # No background thread needed for HDMI. 
-    # Just direct routing to the hardware.
     command = (
-        f'echo "{text}" | '
+        f'echo "{padded_text}" | '
         f'{PIPER_EXEC} --model {MODEL} --output-raw | '
         f'aplay -D {HDMI_DEVICE} -r 22050 -f S16_LE -t raw'
     )
@@ -27,10 +30,11 @@ def speak_piper(text):
         subprocess.run(command, shell=True, check=True)
     except Exception as e:
         print(f"\n[!] Audio Error: {e}")
+        print("Check if Card 2, Device 7 is still the correct HDMI output.")
 
 def main():
     print(f"--- PIPER SPEAKER (HDMI: {HDMI_DEVICE}) ---")
-    print("Type 'exit' to quit.")
+    print("Direct hardware routing active. Type 'exit' to quit.")
     
     while True:
         try:
