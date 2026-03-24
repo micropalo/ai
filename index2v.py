@@ -1,86 +1,76 @@
-import speech_recognition as sr
-import ollama
-from gtts import gTTS
 import subprocess
 import os
+import speech_recognition as sr
+import ollama  # Make sure to: pip install ollama
 
 # --- CONFIGURATION ---
-# N is your calibration duration
-N = 1.5 
-r = sr.Recognizer()
+PIPER_EXEC = "/usr/bin/piper-tts"
+MODEL_PATH = "en_US-lessac-medium.onnx"
+LLM_MODEL = "llama3.2:1b"  # Your local Ollama model
+
+# Initialize the 'Ears'
+recognizer = sr.Recognizer()
+mic = sr.Microphone()
 
 def speak(text):
-    """Saves response to MP3 and plays via Bluetooth default"""
-    print(f"Llama: {text}")
-    filename = "response.mp3"
+    """The 'Mouth' (Piper)"""
+    # Clean the text (remove asterisks or weird characters Llama might output)
+    clean_text = text.replace("*", "").replace("#", "")
+    padded_text = f" . . {clean_text}"
     
-    # Generate the speech file
-    tts = gTTS(text=text, lang='en')
-    tts.save(filename)
+    command = (
+        f'echo "{padded_text}" | '
+        f'{PIPER_EXEC} --model {MODEL_PATH} --output-raw | '
+        f'aplay -r 22050 -f S16_LE -t raw'
+    )
     
-    # Play using mpv (uses system default Bluetooth automatically)
-    # Redirecting output to DEVNULL keeps your terminal clean
-    subprocess.run(["mpv", "--no-video", filename], 
-                   stdout=subprocess.DEVNULL, 
-                   stderr=subprocess.DEVNULL)
-    
-    # Clean up the file after playing to keep your folder tidy
-    if os.path.exists(filename):
-        os.remove(filename)
+    try:
+        subprocess.run(command, shell=True, check=True)
+    except Exception as e:
+        print(f"Audio Output Error: {e}")
+
+def listen():
+    """The 'Ears' (STT)"""
+    with mic as source:
+        print("\n[Listening...]")
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        try:
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+            print("[Processing Speech...]")
+            text = recognizer.recognize_google(audio)
+            return text
+        except:
+            return None
+
+def chat_with_llama(user_input):
+    """The 'Brain' (Ollama)"""
+    print(f"Thinking about: {user_input}")
+    try:
+        response = ollama.chat(model=LLM_MODEL, messages=[
+            {'role': 'user', 'content': user_input},
+        ])
+        return response['message']['content']
+    except Exception as e:
+        return f"Brain Error: {e}"
 
 def main():
-    # --- 1. SMART CALIBRATION AT START ---
-    print("Scanning Room Noise...")
-    with sr.Microphone() as source:
-        # Quick check first
-        r.adjust_for_ambient_noise(source, duration=0.2)
-        
-        if r.energy_threshold > 1000:
-            print(f"Noisy room detected ({int(r.energy_threshold)}). Calibrating for {N}s...")
-            r.adjust_for_ambient_noise(source, duration=N)
-        else:
-            print(f"Quiet room detected ({int(r.energy_threshold)}). Using fast start.")
-            r.adjust_for_ambient_noise(source, duration=0.5)
+    print(f"--- AI ONLINE (Model: {LLM_MODEL}) ---")
+    speak("System integrated. How can I help you today?")
 
-    # --- 2. MAIN CONVERSATION LOOP ---
     while True:
-        with sr.Microphone() as source:
-            print("\n[LISTENING] Ask Llama a question...")
+        user_text = listen()
+        
+        if user_text:
+            print(f"You: {user_text}")
             
-            # Use N for the loop calibration if you prefer it consistent
-            r.adjust_for_ambient_noise(source, duration=0.1) 
+            # 1. Get response from Llama
+            ai_response = chat_with_llama(user_text)
+            print(f"AI: {ai_response}")
             
-            try:
-                # Listen for voice input
-                audio = r.listen(source, timeout=10)
-                user_text = r.recognize_google(audio)
-                print(f"You: {user_text}")
-
-                # --- 3. SEND TO LLAMA WITH SYSTEM PROMPT ---
-                # This ensures the 'Short & Blunt' personality you wanted
-                response = ollama.chat(model='llama3.2:1b', messages=[
-                    {
-                        'role': 'system', 
-                        'content': 'Answer only in 10 words or less. Be very blunt.'
-                    },
-                    {
-                        'role': 'user', 
-                        'content': user_text
-                    }
-                ])
-
-                # Get the blunt reply
-                reply = response['message']['content']
-                
-                # --- 4. OUTPUT TO BLUETOOTH ---
-                speak(reply)
-
-            except Exception:
-                # If it doesn't hear anything or fails, it just resets the loop
-                continue
+            # 2. Speak the response
+            speak(ai_response)
+        else:
+            continue
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nExiting AI Assistant...")
+    main()
