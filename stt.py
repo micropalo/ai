@@ -1,64 +1,30 @@
+import speech_recognition as sr
+from faster_whisper import WhisperModel
 import os
-import sys
-import json
-import queue
-import vosk
-import sounddevice as sd
 
-# --- CONFIGURATION ---
-# Replace with the actual folder name of your GigaSpeech model
-MODEL_PATH = "us-model" 
+# Use 'small' for niche word accuracy on your i3
+model = WhisperModel("small", device="cpu", compute_type="int8")
+recognizer = sr.Recognizer()
 
-if not os.path.exists(MODEL_PATH):
-    print(f"ERROR: Model folder '{MODEL_PATH}' not found.")
-    sys.exit(1)
+def load_words():
+    if os.path.exists("words.txt"):
+        with open("words.txt", "r") as f:
+            return f.read().strip()
+    return ""
 
-# Initialize Vosk
-model = vosk.Model(MODEL_PATH)
-q = queue.Queue()
-
-def callback(indata, frames, time, status):
-    """Callback for the sounddevice input stream"""
-    if status:
-        print(status, file=sys.stderr)
-    q.put(bytes(indata))
-
-def main():
-    # 16000Hz is required for most Vosk models
-    try:
-        with sd.RawInputStream(samplerate=16000, blocksize=8000, dtype='int16',
-                               channels=1, callback=callback):
+def listen():
+    with sr.Microphone() as source:
+        recognizer.energy_threshold = 600
+        try:
+            audio = recognizer.listen(source, timeout=3, phrase_time_limit=5)
+            with open("temp.wav", "wb") as f: f.write(audio.get_wav_data())
             
-            print("\n--- OFFLINE STT TESTER ---")
-            rec = vosk.KaldiRecognizer(model, 16000)
-            
-            # This follows your requested flow
-            print("listening now...") 
-            
-            while True:
-                data = q.get()
-                if rec.AcceptWaveform(data):
-                    result = json.loads(rec.Result())
-                    user_input = result.get("text", "")
-                    
-                    if user_input.strip():
-                        print(user_input) # Your "user input" placeholder
-                        
-                        # Check for the exit command
-                        if "exit" in user_input.lower():
-                            print("user said exit user will exit")
-                            break
-                else:
-                    # Optional: print partials if you want to see it live
-                    # partial = json.loads(rec.PartialResult())
-                    # print(f"Processing: {partial.get('partial', '')}", end='\r')
-                    pass
-
-    except Exception as e:
-        print(f"\n[Hardware Error]: {e}")
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nStopped by user.")
+            segments, _ = model.transcribe(
+                "temp.wav", 
+                beam_size=5, 
+                initial_prompt=load_words(),
+                vad_filter=True
+            )
+            return "".join([s.text for s in segments]).strip()
+        except:
+            return None
